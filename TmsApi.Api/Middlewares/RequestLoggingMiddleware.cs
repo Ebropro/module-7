@@ -21,7 +21,7 @@ public class RequestLoggingMiddleware
 
         var stopwatch = Stopwatch.StartNew();
 
-        // ✔️ CRITICAL: guarantees header is written for ALL responses
+        //guarantees header is written for ALL responses
         context.Response.OnStarting(() =>
         {
             context.Response.Headers["X-Correlation-Id"] = correlationId;

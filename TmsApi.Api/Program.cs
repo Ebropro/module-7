@@ -8,20 +8,49 @@ using TmsApi.Api.Options;
 using TmsApi.Application.Interfaces;
 using TmsApi.Infrastructure.Persistence;
 using TmsApi.Infrastructure.Services;
+using Asp.Versioning;
+using TmsApi.Application.Enrollments.Commands;
+using MediatR;
+using TmsApi.Application.Behaviors;
+using TmsApi.Api.ExceptionHandlers;
+using FluentValidation;
+using Microsoft.Extensions.Caching.Hybrid;
+using Microsoft.AspNetCore.Mvc;
+   
+
 
 
 var builder = WebApplication.CreateBuilder(args);
-// Step 3: Register the DbContext in Program.cs
-// Register TmsDbContext scoped for incoming HTTP requests
+
+
+builder.Services.AddMediatR(cfg =>
+    cfg.RegisterServicesFromAssembly(typeof(EnrollStudentHandler).Assembly));
+
+builder.Services.AddValidatorsFromAssembly(
+    typeof(EnrollStudentValidator).Assembly);
+
+// LoggingBehavior FIRST — it must wrap ValidationBehavior
+builder.Services.AddTransient(
+    typeof(IPipelineBehavior<,>),
+    typeof(LoggingBehavior<,>));
+
+builder.Services.AddTransient(
+    typeof(IPipelineBehavior<,>),
+    typeof(ValidationBehavior<,>));
+
+
+builder.Services.AddExceptionHandler<GlobalExceptionHandler>();
+
+builder.Services.AddProblemDetails();
 
 builder.Services.AddDbContext<TmsDbContext>(options =>
     options.UseNpgsql(builder.Configuration.GetConnectionString("TmsDatabase")));
 
-// 
+// builder.Services.AddDbContext<TmsDbContext>(options =>
+//     options
 //         .UseNpgsql(builder.Configuration.GetConnectionString("TmsDatabase"))
-//         //EX-2 Step 1: Enable Console SQL Logging
 //         .LogTo(Console.WriteLine, LogLevel.Information)  // Log SQL to output window
-//         .EnableSensitiveDataLogging()  // Show parameters in querylogs (dev only)
+//         .EnableSensitiveDataLogging()  // Show parameters in query logs (dev only)
 // );
 
 builder.Host.UseDefaultServiceProvider(options =>
@@ -32,18 +61,48 @@ builder.Host.UseDefaultServiceProvider(options =>
 
 builder.Services.AddControllers(options =>
 {
-options.Filters.Add<AuditLogFilter>();
+    options.Filters.Add<AuditLogFilter>();
 });
 
-// Register controller support (MVC pipeline for API controllers)
- builder.Services.AddControllers();
- builder.Services.AddOpenApi();
+
+
+// M7 - Exercise 1: API Versioning
+// Step 1 Configure versioning in Program.cs
+builder.Services.AddOpenApi("v1", options =>
+{
+    options.ShouldInclude = description =>
+        description.GroupName == "v1";
+});
+
+builder.Services.AddOpenApi("v2", options =>
+{
+    options.ShouldInclude = description =>
+        description.GroupName == "v2";
+});
+
+builder.Services.AddApiVersioning(options =>
+{
+    options.DefaultApiVersion = new ApiVersion(1, 0);
+    options.AssumeDefaultVersionWhenUnspecified = true;
+    options.ReportApiVersions = true;
+    options.ApiVersionReader = ApiVersionReader.Combine(
+        new UrlSegmentApiVersionReader(),
+        new HeaderApiVersionReader("X-Api-Version"));
+})
+.AddApiExplorer(options =>
+{
+    options.GroupNameFormat = "'v'VVV";
+    options.SubstituteApiVersionInUrl = true;
+});
+
+builder.Services.AddOpenApi();
 
 // AUTHENTICATION SETUP
-// attach a custom handler (BasicAuthHandler) that defines how users are authenticated
+// Attach a custom handler (BasicAuthHandler) that defines how users are authenticated.
 builder.Services
     .AddAuthentication("Basic")
     .AddScheme<AuthenticationSchemeOptions, BasicAuthHandler>("Basic", _ => { });
+
 
 
 builder.Services.AddSingleton<EnrollmentWorker>();
@@ -52,126 +111,72 @@ builder.Services.AddScoped<ICourseService, CourseService>();
 builder.Services.AddScoped<IEnrollmentService, EnrollmentService>();
 builder.Services.AddScoped<ICertificateService, CertificateService>();
 builder.Services.AddScoped<IAssessmentService, AssessmentService>();
-
-
-builder.Services.AddProblemDetails();
-
-
-
-// AUTHORIZATION SETUP (ARE YOU ALLOWED?)
-// Enables [Authorize] / RequireAuthorization() checks 
-builder.Services.AddAuthorization();
-
+builder.Services.AddAuthorization();// AUTHORIZATION SETUP (ARE YOU ALLOWED?)
 builder.Services.AddOptions<PaymentOptions>()
     .BindConfiguration("Payments")
     .ValidateDataAnnotations()
     .ValidateOnStart();
 
-// APPLICATION PIPELINE (ORDER MATTERS)
+
+
+
 var app = builder.Build();
+
 
 app.UseMiddleware<RequestLoggingMiddleware>();
 app.UseExceptionHandler();
 app.UseStatusCodePages();
 app.UseHttpsRedirection();
 app.UseRouting();
+app.UseMiddleware<V1DeprecationMiddleware>();
 app.UseAuthentication();
 app.UseAuthorization();
-
-
 // Minimal API endpoint protected by authorization
 app.MapGet("/api/enrollments/worker-smoke", (EnrollmentWorker worker) =>
 {
     worker.ProcessBatch();
     return Results.Ok("processed");
 });
-//
 app.MapGet("/api/assessments/results", () => Results.Ok(new
 {
-// Placeholder response    
-courseCode = "CS-101",
-studentId = "S-001",
-letterGrade = "A"
+    // Placeholder response
+    courseCode = "CS-101",
+    studentId = "S-001",
+    letterGrade = "A"
 }))
 .RequireAuthorization(); // Forces authentication before execution
 
-// app.MapOpenApi(); // enables /openapi.json
-// app.UseExceptionHandler();
 
-// if (!app.Environment.IsDevelopment())
-// {
-//     app.UseExceptionHandler();
-// }
 
 app.MapControllers();
 app.MapGet("/api/error", () =>
 {
-    //throw new TmsDatabaseException("Simulated database failure for ProblemDetails testing");
+    // throw new TmsDatabaseException("Simulated database failure for ProblemDetails testing");
     throw new InvalidOperationException("Simulated database failure for ProblemDetails testing");
 });
-
-
 if (app.Environment.IsDevelopment())
 {
     app.MapOpenApi();
-    app.MapScalarApiReference(); // UI
+
+    app.MapScalarApiReference(options =>
+    {
+        options.WithTitle("TMS API Reference")
+            .WithTheme(ScalarTheme.DeepSpace)
+            .WithDefaultHttpClient(ScalarTarget.CSharp, ScalarClient.HttpClient);
+
+        // Tell Scalar to pull both documents into its sidebar dropdown
+        options
+            .AddDocument("v1", "API Version 1.0")
+            .AddDocument("v2", "API Version 2.0");
+    });
 }
-
-
-
-// EXCERSICE - Step 2: Write an Auto-Seeder
-//SEDDER CODE
-
-// Seed test data at startup
-// using (var scope = app.Services.CreateScope())
-//  {
-//      var context = scope.ServiceProvider.GetRequiredService<TmsDbContext>();
-
-//      context.Database.Migrate(); // // Applies any pending migrations; keeps migration history intact
-    
-//      if (!context.Students.Any())
-//      {
-//         var students = new List<Student>
-//         {
-//             new() { RegistrationNumber = "TMS-2026-0001", Name = "Alice Smith", Age= 22, GPA = 3.8m, IsActive = true },
-//             new() { RegistrationNumber = "TMS-2026-0002", Name = "Bob Jones", Age= 23, GPA = 2.9m, IsActive = true },
-//             new() { RegistrationNumber = "TMS-2026-0003", Name = "Charlie Brown", Age= 25, GPA = 3.4m, IsActive = false },
-//             new() { RegistrationNumber = "TMS-2026-0004", Name = "Diana Prince", Age= 27, GPA = 3.9m, IsActive = true },
-//             new() { RegistrationNumber = "TMS-2026-0005", Name = "Evan Wright", Age= 24, GPA = 2.5m, IsActive = true }
-//         };
-
-//         context.Students.AddRange(students);
-
-//         var courses = new List<Course>
-//         {
-//             new() { Code = "CS-101", Title = "Intro to CS", MaxCapacity = 30 },
-//             new() { Code = "CS-201", Title = "Data Structures", MaxCapacity = 25 },
-//             new() { Code = "MAT-101", Title = "Calculus I", MaxCapacity = 40 }
-//         };
-
-//         context.Courses.AddRange(courses);
-
-//         context.SaveChanges();
-
-//         var enrollments = new List<Enrollment>
-//         {
-//             new() { StudentId = students[0].Id, CourseId = courses[0].Id, Grade = 4.0m },
-//             new() { StudentId = students[0].Id, CourseId = courses[1].Id, Grade = 3.6m },
-//             new() { StudentId = students[1].Id, CourseId = courses[0].Id, Grade = 2.8m },
-//             new() { StudentId = students[3].Id, CourseId = courses[1].Id, Grade = 3.9m }
-//         };
-
-//         context.Enrollments.AddRange(enrollments);
-
-//         context.SaveChanges();
-//     }
-// }
 
 if (app.Environment.IsDevelopment())
 {
-using var scope = app.Services.CreateScope();
-var context = scope.ServiceProvider.GetRequiredService<TmsDbContext>();
-await DataSeeder.SeedAsync(context);
+    using var scope = app.Services.CreateScope();
+    var context = scope.ServiceProvider.GetRequiredService<TmsDbContext>();
+
+    await DataSeeder.SeedAsync(context);
 }
 
 app.Run();

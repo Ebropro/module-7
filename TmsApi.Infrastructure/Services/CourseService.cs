@@ -10,6 +10,15 @@ namespace TmsApi.Infrastructure.Services;
 
 public class CourseService(TmsDbContext context, ILogger<CourseService> logger) : ICourseService
 {
+    
+    
+        public Task<Course?> GetByCodeAsync(string code, CancellationToken ct) =>
+            context.Courses
+                .Include(c => c.Enrollments) // required for Enrollments.Count check
+                .FirstOrDefaultAsync(c => c.Code == code, ct);
+        // No AsNoTracking here — we don't need to track but it's harmless
+        // If you add AsNoTracking, course.Enrollments.Count still works
+        
     // Exercise 1-2 read path
     public Task<CourseResponseDto?> GetByIdAsync(int id, CancellationToken ct) =>
         context.Courses
@@ -50,9 +59,7 @@ public Task<bool> CodeExistsAsync(string code, CancellationToken ct) =>
 context.Courses.AsNoTracking().AnyAsync(c => c.Code == code, ct);
 
 // ── Session 2 Exercise 4: Paginated collection ────────────
-    // THE ORDER IS THE LESSON:
-    // 1. Build query  2. Filter  3. COUNT  4. Sort  5. Skip/Take  6. Project  7. Execute
-    // Counting after Skip/Take gives you page size, not total — that's fake pagination
+
     public async Task<PagedResponse<CourseResponseDto>> GetCoursesAsync(
         PagedRequest request, CancellationToken ct)
     {

@@ -1,0 +1,163 @@
+=====================================
+V1 VERSION CHECK
+=====================================
+
+[curl response]
+
+C:\Users\hp\TmsApi>curl -i http://localhost:5006/api/v1/courses
+HTTP/1.1 200 OK
+Content-Type: application/json; charset=utf-8
+Date: Tue, 21 Jul 2026 17:59:35 GMT
+Server: Kestrel
+Transfer-Encoding: chunked
+api-supported-versions: 1.0, 2.0
+Deprecation: true
+Sunset: Thu, 31 Dec 2026 00:00:00 GMT
+Link: <http://localhost:5006/api/v2/courses>; rel="successor-version"
+X-Correlation-Id: b55b67f4
+
+{"items":[{"id":14,"code":"DAT-201","title":"Advanced SQL and Indexing",
+"maxCapacity":26,"enrollmentCount":0},....  ...  ..
+.....{"id":12,"code":"CSE-306","title":"Security and Authentication","maxCapacity":20,
+"enrollmentCount":0}],"totalCount":25,"page":1,"pageSize":20,"totalPages":2,
+"hasNext":true,"hasPrevious":false}
+
+
+     =======[API console logs]========
+
+
+TmsApi.Api.Middlewares.RequestLoggingMiddleware[0]
+      [8f547bfa] START GET /api/v1/courses
+info: TmsApi.Api.Filters.AuditLogFilter[0]
+      TMS API call: GET /api/v1/courses
+info: Microsoft.EntityFrameworkCore.Database.Command[20101]
+      Executed DbCommand (1ms) [Parameters=[], CommandType='Text', CommandTimeout='30']
+      SELECT count(*)::int
+      FROM "Courses" AS c
+info: Microsoft.EntityFrameworkCore.Database.Command[20101]
+      Executed DbCommand (13ms) [Parameters=[@p1='?' (DbType = Int32), @p='?' (DbType = Int32)], CommandType='Text', CommandTimeout='30']
+      SELECT c."Id", c."Code", c."Title", c."MaxCapacity", (
+          SELECT count(*)::int
+          FROM "Enrollments" AS e
+          WHERE c."Id" = e."CourseId") AS "EnrollmentCount"
+      FROM "Courses" AS c
+      ORDER BY c."Title"
+      LIMIT @p1 OFFSET @p
+info: TmsApi.Api.Filters.AuditLogFilter[0]
+      TMS API response: 200
+info: TmsApi.Api.Middlewares.RequestLoggingMiddleware[0]
+      [8f547bfa] END 200 (465 ms)
+
+       
+
+=====================================
+V2 VERSION CHECK
+=====================================
+
+[curl response]
+
+C:\Users\hp\TmsApi>curl -i http://localhost:5006/api/v2/courses
+HTTP/1.1 200 OK
+Content-Type: application/json; charset=utf-8
+Date: Tue, 21 Jul 2026 18:00:23 GMT
+Server: Kestrel
+Transfer-Encoding: chunked
+api-supported-versions: 1.0, 2.0
+X-Correlation-Id: f0da2e8e
+
+{"data":[{"id":14,"title":"Advanced SQL and Indexing","code":"DAT-201",
+"maxCapacity":26,"enrollmentCount":0}.....
+...
+{"id":12,"title":"Security and Authentication","code":"CSE-306",
+"maxCapacity":20,"enrollmentCount":0}],
+"meta":{"totalCount":25,"page":1,"pageSize":20,"totalPages":2,"hasNext":true,"hasPrevious":false},
+"links":{"self":"/api/v2/courses?page=1&pageSize=20",
+"next":"/api/v2/courses?page=2&pageSize=20",
+"prev":null,"enroll":"/api/v2/enrollments"}}
+ 
+    =======[API console logs]========
+
+TmsApi.Api.Middlewares.RequestLoggingMiddleware[0]
+      [7dfb2683] START GET /api/v2/courses
+info: TmsApi.Api.Filters.AuditLogFilter[0]
+      TMS API call: GET /api/v2/courses
+info: Microsoft.EntityFrameworkCore.Database.Command[20101]
+      Executed DbCommand (4ms) [Parameters=[], CommandType='Text', CommandTimeout='30']
+      SELECT count(*)::int
+      FROM "Courses" AS c
+info: Microsoft.EntityFrameworkCore.Database.Command[20101]
+      Executed DbCommand (5ms) [Parameters=[@p1='?' (DbType = Int32), @p='?' (DbType = Int32)], CommandType='Text', CommandTimeout='30']
+      SELECT c."Id", c."Title", c."Code", c."MaxCapacity", (
+          SELECT count(*)::int
+          FROM "Enrollments" AS e
+          WHERE c."Id" = e."CourseId") AS "EnrollmentCount"
+      FROM "Courses" AS c
+      ORDER BY c."Title"
+      LIMIT @p1 OFFSET @p
+info: TmsApi.Api.Filters.AuditLogFilter[0]
+      TMS API response: 200
+info: TmsApi.Api.Middlewares.RequestLoggingMiddleware[0]
+      [7dfb2683] END 200 (217 ms)
+
+=====================================
+ V2 INVALID ENROLLMENT TEST
+=====================================
+
+PS C:\Users\hp\TmsApi> curl.exe -i -X POST http://localhost:5006/api/v2/enrollments `
+-H "Content-Type: application/json" `
+-d '{"studentId":1,"courseCode":"invalid"}'
+
+[curl response]
+
+HTTP/1.1 400 Bad Request
+Content-Type: application/problem+json
+Date: Thu, 23 Jul 2026 16:25:09 GMT
+Server: Kestrel
+Cache-Control: no-cache,no-store
+Expires: -1
+Pragma: no-cache
+Transfer-Encoding: chunked
+api-supported-versions: 1.0, 2.0
+X-Correlation-Id: 966eb59a
+
+{"title":"Validation failed","status":400,"detail":"One or more fields are invalid. See errors for details.","instance":"/api/v2/enrollments","errors":{"CourseCode":["Course code must follow the format XXX-000 (e.g., CSE-101)."]}}
+PS C:\Users\hp\TmsApi>
+
+=======[API console logs]========
+
+TmsApi.Api.Middlewares.RequestLoggingMiddleware[0]
+      [966eb59a] START POST /api/v2/enrollments
+info: TmsApi.Api.Auth.BasicAuthHandler[7]
+      Basic was not authenticated. Failure message: No credentials
+info: TmsApi.Api.Filters.AuditLogFilter[0]
+      TMS API call: POST /api/v2/enrollments
+info: TmsApi.Application.Behaviors.LoggingBehavior[0]
+      Handling EnrollStudentCommand (cid=4f20cbf0a8e85a14aad99d9c5739e9f7)
+fail: TmsApi.Application.Behaviors.LoggingBehavior[0]
+      Failed EnrollStudentCommand after 0ms (cid=4f20cbf0a8e85a14aad99d9c5739e9f7)
+      FluentValidation.ValidationException: Validation failed: 
+       -- CourseCode: Course code must follow the format XXX-000 (e.g., CSE-101). Severity: Error
+         at TmsApi.Application.Behaviors.ValidationBehavior`2.Handle(TRequest request, RequestHandlerDelegate`1 next, CancellationToken ct) in C:\Users\hp\TmsApi\TmsApi.Application\Behaviors\ValidationBehavior.cs:line 28
+         at TmsApi.Application.Behaviors.LoggingBehavior`2.Handle(TRequest request, RequestHandlerDelegate`1 next, CancellationToken ct) in C:\Users\hp\TmsApi\TmsApi.Application\Behaviors\LoggingBehavior.cs:line 37
+info: TmsApi.Api.Filters.AuditLogFilter[0]
+      TMS API response: 200
+info: TmsApi.Api.Middlewares.RequestLoggingMiddleware[0]
+      [966eb59a] END 400 (21 ms)
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

@@ -11,8 +11,29 @@ public class EnrollmentService(
     TmsDbContext context,
     ILogger<EnrollmentService> logger) : IEnrollmentService
 {
-    // Exercise 3: Read path
-    // never returns an enrollment that belongs to a different course
+
+
+    public Task<bool> ExistsAsync(int studentId, string courseCode, CancellationToken ct) =>
+        context.Enrollments
+            .AsNoTracking()
+            .AnyAsync(e =>
+                e.StudentId == studentId &&
+                e.Course.Code == courseCode, // EF translates this to a JOIN
+                ct);
+    
+        public async Task AddAsync(Enrollment enrollment, CancellationToken ct)
+    {
+        context.Enrollments.Add(enrollment);
+        await context.SaveChangesAsync(ct);
+    }
+        
+         public Task<List<Enrollment>> GetByStudentIdAsync(int studentId, CancellationToken ct) =>
+        context.Enrollments
+            .AsNoTracking()
+            .Where(e => e.StudentId == studentId)
+            .Include(e => e.Course) // required — handler reads e.Course.Code and e.Course.Title
+            .ToListAsync(ct);
+    
     public Task<EnrollmentResponseDto?> GetByIdAsync(
         int courseId,
         int id,

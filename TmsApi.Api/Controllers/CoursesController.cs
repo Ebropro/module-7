@@ -1,3 +1,4 @@
+
 using Microsoft.AspNetCore.Mvc;
 using TmsApi.Application.Dtos;
 using TmsApi.Application.Interfaces;
@@ -101,9 +102,13 @@ public class CoursesController(
         }
 
         var result = await courseService.CreateAsync(request, ct);
+
+       
+
         return CreatedAtAction(nameof(GetCourseById), new { id = result.Id }, result);
     }
 }
+
 
 
 
